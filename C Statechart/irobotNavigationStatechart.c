@@ -8,8 +8,8 @@ typedef enum{
 	PAUSE_WAIT_BUTTON_RELEASE,			///< Paused; pause button pressed down, wait until released before detecting next press
 	UNPAUSE_WAIT_BUTTON_PRESS,			///< Paused; wait for pause button to be pressed
 	UNPAUSE_WAIT_BUTTON_RELEASE,		///< Paused; pause button pressed down, wait until released before returning to previous state
-	DRIVE,MOVE_RIGHT,MOVE_LEFT,								///< Drive straight
-	TURN_LEFT,TURN_RIGHT,
+	DRIVE,MOVE_RIGHT,MOVE_LEFT,MOVE,BACK,								///< Drive straight
+	TURN_LEFT,TURN_RIGHT,TURN_AROUND,
 	ADJUST_LEFT,ADJUST_RIGHT///< Turn
 } robotState_t;
 
@@ -24,6 +24,7 @@ void irobotNavigationStatechart(
 ){
 	// local state
 	static robotState_t 		state = INITIAL;				// current program state
+	static robotState_t 		prev_state = INITIAL;				// current program state
 	static robotState_t			unpausedState = DRIVE;			// state history for pause region
 	static int32_t				distanceAtManeuverStart = 0;	// distance robot had travelled when a maneuver begins, in mm
 	static int32_t				angleAtManeuverStart = 0;		// angle through which the robot had turned when a maneuver begins, in deg
@@ -31,7 +32,23 @@ void irobotNavigationStatechart(
 	// outputs
 	int16_t						leftWheelSpeed = 0;				// speed of the left wheel, in mm/s
 	int16_t						rightWheelSpeed = 0;			// speed of the right wheel, in mm/s
-
+	int16_t speed = 200;
+	static int16_t				error = 0;
+	static int16_t				d_error = 0;
+	static double accel_x = 0;
+	//update error
+	double d_accel_x = accel_x - accel.x;
+	bool onramp = (abs(accel.x)>0.1 );
+	int16_t maneuv = onramp?50:50;
+	
+	accel_x = accel.x;
+	error += sensors.distance*sin(netAngle*M_PI/180);
+	d_error -= error;
+	if (state !=prev_state){
+		angleAtManeuverStart = netAngle;
+		distanceAtManeuverStart = netDistance;
+	}
+	prev_state = state;
 	//*****************************************************
 	// state data - process inputs                        *
 	//*****************************************************
@@ -83,48 +100,67 @@ void irobotNavigationStatechart(
 	//*************************************
 	// state transition - run region      *
 	//*************************************
-	else if( sensors.bumps_wheelDrops.bumpLeft>0){
+	else if (sensors.bumps_wheelDrops.wheeldropLeft || sensors.bumps_wheelDrops.wheeldropRight){
+		state = BACK;
+	}
+	else if( sensors.bumps_wheelDrops.bumpLeft>0 ||
+		sensors.cliffFrontLeft || sensors.cliffLeft ){
 		state = TURN_RIGHT;
-	}else if (sensors.bumps_wheelDrops.bumpRight>0){
+	}else if (sensors.bumps_wheelDrops.bumpRight>0 ||
+		sensors.cliffFrontRight ||sensors.cliffRight ||
+		sensors.bumps_wheelDrops.wheeldropRight){
 		state = TURN_LEFT;
 	}else if(state == TURN_LEFT && abs(netAngle - angleAtManeuverStart) >= 90){
-		angleAtManeuverStart = netAngle;
-		distanceAtManeuverStart = netDistance;
+		
 		state = MOVE_LEFT;
 	}else if(state == TURN_RIGHT && abs(netAngle - angleAtManeuverStart) >= 90){
-		angleAtManeuverStart = netAngle;
-		distanceAtManeuverStart = netDistance;
 		state = MOVE_RIGHT;
 	}
-	else if(state == MOVE_LEFT && abs(netDistance - distanceAtManeuverStart) >= 250){
-		angleAtManeuverStart = netAngle;
-		distanceAtManeuverStart = netDistance;
+	else if(state == MOVE_LEFT && abs(netDistance - distanceAtManeuverStart) >= maneuv){
 		state = ADJUST_RIGHT;
-	}else if(state == MOVE_RIGHT && abs(netDistance - distanceAtManeuverStart) >= 250){
-		angleAtManeuverStart = netAngle;
-		distanceAtManeuverStart = netDistance;
+	}else if(state == MOVE_RIGHT && abs(netDistance - distanceAtManeuverStart) >= maneuv){
 		state = ADJUST_LEFT;
 	}
 	else if((state == ADJUST_LEFT ||state == ADJUST_RIGHT) && abs(netAngle - angleAtManeuverStart) >= 90){
-		angleAtManeuverStart = netAngle;
-		distanceAtManeuverStart = netDistance;
 		state = DRIVE;
-	}	// else, no transitions are taken
+	}else if (state == DRIVE && (d_accel_x<-0.1 || accel_x<-0.1)){
+		state = TURN_AROUND;
+	}else if(state == TURN_AROUND && abs(netAngle + angleAtManeuverStart)<5){ 	// else, no transitions are taken
+		state = MOVE;
+	}else if ((state == MOVE ) && abs(netDistance - distanceAtManeuverStart) >= maneuv){
+		state = DRIVE;
+	}else if ((state == BACK ) && abs(netDistance - distanceAtManeuverStart) >= 3*maneuv){
+		state = DRIVE;
+	}
+
 
 	//*****************
 	//* state actions *
 	//*****************
 	
-	
+	speed = (onramp?100:200);
 
-	if (state == DRIVE || state == MOVE_LEFT || state == MOVE_RIGHT){
+
+
+	if (state == MOVE_LEFT || state == MOVE_RIGHT || state ==MOVE){
 		// full speed ahead!
-		leftWheelSpeed = rightWheelSpeed = 200;
+		leftWheelSpeed = rightWheelSpeed = speed;
+	}else if (state == BACK){
+		leftWheelSpeed = rightWheelSpeed = -speed;
+	
+	}else if (state == DRIVE){
+		leftWheelSpeed = 150 + 0.05*error;
+		rightWheelSpeed = 150 - 0.05*error;
+		
+	
 	}else if (state ==TURN_LEFT || state == ADJUST_LEFT){
-		leftWheelSpeed = -100;
+		leftWheelSpeed = -speed;
 		rightWheelSpeed = -leftWheelSpeed;
 	}else if (state ==TURN_RIGHT || state == ADJUST_RIGHT){
-		leftWheelSpeed = 100;
+		leftWheelSpeed = speed;
+		rightWheelSpeed = -leftWheelSpeed;
+	}else if (state == TURN_AROUND){
+		leftWheelSpeed = speed;
 		rightWheelSpeed = -leftWheelSpeed;
 	}else{
 		leftWheelSpeed = rightWheelSpeed = 0;
