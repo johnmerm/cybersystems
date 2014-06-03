@@ -42,6 +42,7 @@ void irobotNavigationStatechart(
 	//update error
 	double d_accel_x = accel_x - accel.x;
 	bool onramp = (abs(accel.x)>0.1 );
+	bool downramp = accel.x < 0.1 && accel.y < 0.1;
 	int16_t maneuv = onramp?50:100;
 	
 	accel_x = accel.x;
@@ -109,12 +110,13 @@ void irobotNavigationStatechart(
 	else if (sensors.bumps_wheelDrops.wheeldropRight){
 		state = BACK_LEFT;
 	}
-	else if( sensors.bumps_wheelDrops.bumpLeft>0 ||
-		sensors.cliffFrontLeft || sensors.cliffLeft ){
+	else if( sensors.bumps_wheelDrops.bumpLeft>0 
+		//||sensors.cliffFrontLeft || sensors.cliffLeft 
+		){
 		state = TURN_RIGHT;
-	}else if (sensors.bumps_wheelDrops.bumpRight>0 ||
-		sensors.cliffFrontRight ||sensors.cliffRight ||
-		sensors.bumps_wheelDrops.wheeldropRight){
+	}else if (sensors.bumps_wheelDrops.bumpRight>0 
+		//||sensors.cliffFrontRight ||sensors.cliffRight
+		){
 		state = TURN_LEFT;
 	}else if(state == TURN_LEFT && abs(netAngle - angleAtManeuverStart) >= 90){
 		
