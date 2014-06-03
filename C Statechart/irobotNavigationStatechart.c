@@ -8,8 +8,11 @@ typedef enum{
 	PAUSE_WAIT_BUTTON_RELEASE,			///< Paused; pause button pressed down, wait until released before detecting next press
 	UNPAUSE_WAIT_BUTTON_PRESS,			///< Paused; wait for pause button to be pressed
 	UNPAUSE_WAIT_BUTTON_RELEASE,		///< Paused; pause button pressed down, wait until released before returning to previous state
-	DRIVE,MOVE_RIGHT,MOVE_LEFT,MOVE,BACK,								///< Drive straight
+	DRIVE,
+	MOVE_RIGHT,MOVE_LEFT,MOVE,
+	BACK_RIGHT,BACK_LEFT,								///< Drive straight
 	TURN_LEFT,TURN_RIGHT,TURN_AROUND,
+	TURN_LEFT_NA, TURN_RIGHT_NA, MOVE_RIGHT_NA, MOVE_LEFT_NA,
 	ADJUST_LEFT,ADJUST_RIGHT///< Turn
 } robotState_t;
 
@@ -32,14 +35,14 @@ void irobotNavigationStatechart(
 	// outputs
 	int16_t						leftWheelSpeed = 0;				// speed of the left wheel, in mm/s
 	int16_t						rightWheelSpeed = 0;			// speed of the right wheel, in mm/s
-	int16_t speed = 200;
+	int16_t speed = 100;
 	static int16_t				error = 0;
 	static int16_t				d_error = 0;
 	static double accel_x = 0;
 	//update error
 	double d_accel_x = accel_x - accel.x;
 	bool onramp = (abs(accel.x)>0.1 );
-	int16_t maneuv = onramp?50:50;
+	int16_t maneuv = onramp?50:100;
 	
 	accel_x = accel.x;
 	error += sensors.distance*sin(netAngle*M_PI/180);
@@ -100,8 +103,11 @@ void irobotNavigationStatechart(
 	//*************************************
 	// state transition - run region      *
 	//*************************************
-	else if (sensors.bumps_wheelDrops.wheeldropLeft || sensors.bumps_wheelDrops.wheeldropRight){
-		state = BACK;
+	else if (sensors.bumps_wheelDrops.wheeldropLeft){
+		state = BACK_RIGHT;
+	}
+	else if (sensors.bumps_wheelDrops.wheeldropRight){
+		state = BACK_LEFT;
 	}
 	else if( sensors.bumps_wheelDrops.bumpLeft>0 ||
 		sensors.cliffFrontLeft || sensors.cliffLeft ){
@@ -116,6 +122,18 @@ void irobotNavigationStatechart(
 	}else if(state == TURN_RIGHT && abs(netAngle - angleAtManeuverStart) >= 90){
 		state = MOVE_RIGHT;
 	}
+
+
+	else if (state == TURN_LEFT_NA && abs(netAngle - angleAtManeuverStart) >= 90){
+		state = MOVE_LEFT_NA;
+	}
+	else if (state == TURN_RIGHT_NA && abs(netAngle - angleAtManeuverStart) >= 90){
+		state = MOVE_RIGHT_NA;
+	}
+	else if ((state == MOVE_LEFT_NA || state == MOVE_RIGHT_NA) && abs(netDistance - distanceAtManeuverStart) >= maneuv){
+		state = DRIVE;
+	}
+
 	else if(state == MOVE_LEFT && abs(netDistance - distanceAtManeuverStart) >= maneuv){
 		state = ADJUST_RIGHT;
 	}else if(state == MOVE_RIGHT && abs(netDistance - distanceAtManeuverStart) >= maneuv){
@@ -123,14 +141,20 @@ void irobotNavigationStatechart(
 	}
 	else if((state == ADJUST_LEFT ||state == ADJUST_RIGHT) && abs(netAngle - angleAtManeuverStart) >= 90){
 		state = DRIVE;
-	}else if (state == DRIVE && (d_accel_x<-0.1 || accel_x<-0.1)){
+	}
+	
+	else if (state == DRIVE && (d_accel_x<-0.1 || accel_x<-0.1)){
 		state = TURN_AROUND;
-	}else if(state == TURN_AROUND && abs(netAngle + angleAtManeuverStart)<5){ 	// else, no transitions are taken
+	}
+	else if(state == TURN_AROUND && abs(netAngle + angleAtManeuverStart)<5){ 	// else, no transitions are taken
 		state = MOVE;
 	}else if ((state == MOVE ) && abs(netDistance - distanceAtManeuverStart) >= maneuv){
 		state = DRIVE;
-	}else if ((state == BACK ) && abs(netDistance - distanceAtManeuverStart) >= 3*maneuv){
-		state = DRIVE;
+	}else if ((state == BACK_LEFT ) && abs(netDistance - distanceAtManeuverStart) >= maneuv){
+		state = TURN_RIGHT_NA;
+	}
+	else if ((state == BACK_RIGHT) && abs(netDistance - distanceAtManeuverStart) >= maneuv){
+		state = TURN_LEFT_NA;
 	}
 
 
@@ -138,14 +162,14 @@ void irobotNavigationStatechart(
 	//* state actions *
 	//*****************
 	
-	speed = (onramp?100:200);
+	speed = (onramp?75:100);
 
 
 
-	if (state == MOVE_LEFT || state == MOVE_RIGHT || state ==MOVE){
+	if (state == MOVE_LEFT || state == MOVE_RIGHT || state == MOVE || state == MOVE_RIGHT_NA || state == MOVE_LEFT_NA){
 		// full speed ahead!
 		leftWheelSpeed = rightWheelSpeed = speed;
-	}else if (state == BACK){
+	}else if (state == BACK_RIGHT || state ==BACK_LEFT){
 		leftWheelSpeed = rightWheelSpeed = -speed;
 	
 	}else if (state == DRIVE){
@@ -153,10 +177,11 @@ void irobotNavigationStatechart(
 		rightWheelSpeed = 150 - 0.05*error;
 		
 	
-	}else if (state ==TURN_LEFT || state == ADJUST_LEFT){
+	}else if (state ==TURN_LEFT ||state ==TURN_LEFT_NA|| state == ADJUST_LEFT){
 		leftWheelSpeed = -speed;
 		rightWheelSpeed = -leftWheelSpeed;
-	}else if (state ==TURN_RIGHT || state == ADJUST_RIGHT){
+	}
+	else if (state == TURN_RIGHT || state == TURN_RIGHT_NA || state == ADJUST_RIGHT){
 		leftWheelSpeed = speed;
 		rightWheelSpeed = -leftWheelSpeed;
 	}else if (state == TURN_AROUND){
